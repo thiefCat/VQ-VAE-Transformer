@@ -15,9 +15,11 @@ To run the model, go to the working directory, and type "python VQ-VAE-Transform
 ## Result
 You can visualize the training result by looking at /result folder, including the training curve, the visualized latent space, and the generation result.  
 Sample reconstruction results is as follows:
-<img src="images/mnist_rec.png" width="200" height="200">
-<img src="images/fashion_rec.png" width="200" height="200">
+
+<img src="images/mnist_rec.png" width="20" height="100">
+<img src="images/fashion_rec.png" width="20" height="100">
 
 Sample generating results is as follows:
+
 <img src="images/mnist_ge.png" width="200" height="200">
 <img src="images/fashion_ge.png" width="200" height="200">
