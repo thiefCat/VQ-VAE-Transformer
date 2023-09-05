@@ -19,14 +19,15 @@ def build_config_from_args(is_jupyter=False):
     parser.add_argument('--width', type=int, default=16, help="number of channels of convolution")
     parser.add_argument('--num_layers', type=int, default=3, help="number of stacked transformer blocks")
     parser.add_argument('--num_embeddings', type=int, default=128, help="length of the codebook (embedding)")
+    parser.add_argument('--architecture', type=int, default=2, choices=[1, 2])
     parser.add_argument('--num_heads', type=int, default=5, help="number of heads in attention layer")
     parser.add_argument('--d_ffn', type=int, default=64, help="dimension of the feed forward layer")
     parser.add_argument('--p_drop', type=float, default=0.1, help="dropout probability")
-    parser.add_argument('--dataset', type=str, default='mnist', choices=['mnist', 'fashion', 'celeba'])
+    parser.add_argument('--dataset', type=str, default='fashion', choices=['mnist', 'fashion'])
     parser.add_argument('--iter_save', type=int, default=50, help="Save running loss every n iterations")
     parser.add_argument('--train', type=int, default=1, help="Flag for training")
     parser.add_argument('--out_dir', type=str, default="VQ-VAE/results", help="Directory of output logging")
-    parser.add_argument('--conditional', type=int, default=1, help="Flag for conditional generation")
+    parser.add_argument('--conditional', type=int, default=0, help="Flag for conditional generation")
     parser.add_argument('--alpha', type=float, default=2, help="The hyperparameter controlling the balance between rec loss and codebook loss")
     parser.add_argument('--beta', type=float, default=0.1, help="The hyperparameter controlling the balance between z_latent_loss and q_latent_loss")
     parser.add_argument('--latent_dim', type=int, default=8, help="dimension of the latent space")
@@ -40,8 +41,6 @@ def build_config_from_args(is_jupyter=False):
 def load_dataset(type, train_batch_size=256):
     if type == 'mnist':
         train_loader, test_loader = dataset.get_mnist_data(train_batch_size, test_batch_size=10)
-    elif type == 'celeba':
-        train_loader, test_loader = celeba64.get_celeba_data(train_batch_size), None
     else:
         train_loader, test_loader = dataset.get_fashion_mnist_data(train_batch_size, test_batch_size=10)
     return train_loader, test_loader
@@ -153,8 +152,7 @@ class TransformerTrainer:
             generated_latents = einops.rearrange(generated_latents, 'b (h w) d -> b d h w', h=size, w=size) 
             reconstructions = self.vq_vae.decode(generated_latents) # [b, h, w]
             reconstructions = ut.denormalize(reconstructions)
-            if self.vq_vae.in_channels == 1:
-                reconstructions = reconstructions.unsqueeze(1)
+            reconstructions = reconstructions.unsqueeze(1)
         torchvision.utils.save_image(
             reconstructions, self.config.out_dir + '/generated.png', nrow=10)
             
@@ -175,8 +173,7 @@ class TransformerTrainer:
             generated_latents = einops.rearrange(generated_latents, 'b (h w) d -> b d h w', h=size, w=size) 
             reconstructions = self.vq_vae.decode(generated_latents) # [b, h, w]
             reconstructions = ut.denormalize(reconstructions)
-            if self.vq_vae.in_channels == 1:
-                reconstructions = reconstructions.unsqueeze(1)
+            reconstructions = reconstructions.unsqueeze(1)
         torchvision.utils.save_image(
             reconstructions, self.config.out_dir + '/generated.png', nrow=10)
 
@@ -202,15 +199,10 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     train_loader, test_loader = load_dataset(config.dataset, train_batch_size=128)  # the training data is in range [-1, 1]
-    in_dim = None
-    if config.dataset in ['mnist', 'fashion']:
-        in_dim = 1
-        size = 28
-    else:
-        in_dim = 3
-        size = 64
+    in_dim = 1
+    size = 28
     
-    vq_vae = vqvae_models.VQVAE(in_dim, config.width, config.latent_dim, config.num_res_layers,
+    vq_vae = vqvae_models.VQVAE(config.architecture, in_dim, config.width, config.latent_dim, config.num_res_layers,
                           config.num_embeddings, config.alpha, config.beta)
     vq_vae.load_state_dict(torch.load(config.out_dir + '/vqvae.pt'))
     vq_vae.to(device)
@@ -222,18 +214,18 @@ if __name__ == '__main__':
                                 config.d, config.num_embeddings, max_seq_len, config.num_heads,
                                 config.d_ffn, config.p_drop, vq_vae)
 
-    # autoregressive_transformer = GPT(config.num_embeddings, max_seq_len, 5, 8, 128)
-
     trainer = TransformerTrainer(train_loader, autoregressive_transformer, 
-                                 vq_vae, lr=0.0015, num_epochs=8, config=config)
+                                 vq_vae, lr=0.0015, num_epochs=10, config=config)
 
     if config.train:
         trainer.train()
         trainer.plt_loss()
     else:
         trainer.transformer.load_state_dict(torch.load(config.out_dir + '/transformer.pt'))
-    # trainer.inference()
-    trainer.inference_by_class()
+    if config.conditional:
+        trainer.inference_by_class()
+    else:
+        trainer.inference()
 
     # with torch.no_grad():
     #     data_test = next(iter(train_loader))[0].to(device)

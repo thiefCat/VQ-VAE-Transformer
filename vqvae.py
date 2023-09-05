@@ -19,7 +19,8 @@ def build_config_from_args(is_jupyter=False):
     parser.add_argument('--width', type=int, default=16, help="number of channels of convolution")
     parser.add_argument('--num_embeddings', type=int, default=128, help="length of the codebook")
     parser.add_argument('--num_res_layers', type=int, default=3, help="number of stacked residual blocks")
-    parser.add_argument('--dataset', type=str, default='celeba', choices=['mnist', 'fashion', 'celeba'])
+    parser.add_argument('--architecture', type=int, default=2, choices=[1, 2])
+    parser.add_argument('--dataset', type=str, default='fashion', choices=['mnist', 'fashion'])
     parser.add_argument('--alpha', type=float, default=2, help="The hyperparameter controlling the balance between rec loss and codebook loss")
     parser.add_argument('--beta', type=float, default=0.1, help="The hyperparameter controlling the balance between z_latent_loss and q_latent_loss")
     parser.add_argument('--iter_save', type=int, default=50, help="Save running loss every n iterations")
@@ -34,8 +35,6 @@ def build_config_from_args(is_jupyter=False):
 def load_dataset(type, train_batch_size=256):
     if type == 'mnist':
         train_loader, test_loader = dataset.get_mnist_data(train_batch_size, test_batch_size=10)
-    elif type == 'celeba':
-        train_loader, test_loader = celeba64.get_celeba_data(train_batch_size), None
     else:
         train_loader, test_loader = dataset.get_fashion_mnist_data(train_batch_size, test_batch_size=10)
     return train_loader, test_loader
@@ -60,7 +59,7 @@ class Experiment:
 
     def train(self):
         os.makedirs(self.config.out_dir, exist_ok=True)
-        # self.model.train()
+        self.model.train()
         epoch_iterator = trange(self.num_epochs)
         iter_save = self.config.iter_save
         for epoch in epoch_iterator: 
@@ -107,7 +106,7 @@ class Experiment:
         plt.savefig(self.config.out_dir + '/vqvae_train_loss.png')  # specify the full path here
         plt.close()
 
-    def vis_reconstruction(self, mono):
+    def vis_reconstruction(self):
         '''
         Visualize 10 reconstructions, the first row is original data, the second
         row is reconstructed data
@@ -119,23 +118,19 @@ class Experiment:
             x_hat, _, _, _ = self.model(data_test)
             data_test = ut.denormalize(data_test)
             x_hat = ut.denormalize(x_hat)
-            if mono:
-                data_test = data_test.unsqueeze(1)
-                x_hat = x_hat.unsqueeze(1)
-            print(data_test.shape)
-            print(x_hat.shape)
+            data_test = data_test.unsqueeze(1)
+            x_hat = x_hat.unsqueeze(1)
             stacked = torch.cat([data_test, x_hat], dim=0)
         torchvision.utils.save_image(
         stacked, self.config.out_dir + '/reconstruction.png', nrow=10)
 
     
-    def save_image(self, x, mono):
+    def save_image(self, x):
         '''
         expect a single image x with shape [C, H, W] for colored image, and [H, W] for black white image
         '''
         x = ut.denormalize(x)
-        if mono:
-            x = x.unsqueeze(0)
+        x = x.unsqueeze(0)
         torchvision.utils.save_image(x, self.config.out_dir + '/show.png')
     
 def print_gradients(model):
@@ -158,25 +153,18 @@ if __name__ == '__main__':
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(device)
     train_loader, test_loader = load_dataset(config.dataset, train_batch_size=256)  # the training data is in range [-1, 1]
-    in_dim = None
-    if config.dataset in ['mnist', 'fashion']:
-        in_dim = 1
-        eval_data = dataset.get_eval_data(test_loader)
-        mono = True
-    else:
-        in_dim = 3
-        eval_data = None
-        mono = False
-    model = vqvae_models.VQVAE(in_dim, config.width, config.latent_dim, config.num_res_layers,
+    in_dim = 1
+    eval_data = dataset.get_eval_data(test_loader)
+    model = vqvae_models.VQVAE(config.architecture, in_dim, config.width, config.latent_dim, config.num_res_layers,
                           config.num_embeddings, config.alpha, config.beta)
-    experiment = Experiment(train_loader, eval_data, model, lr=0.0025, num_epochs=3, config=config)
+    experiment = Experiment(train_loader, eval_data, model, lr=0.003, num_epochs=10, config=config)
 
     if config.train:
         experiment.train()
         experiment.plt_loss()
     else:
         experiment.model.load_state_dict(torch.load(config.out_dir + '/vqvae.pt'))
-    experiment.vis_reconstruction(mono)
+    experiment.vis_reconstruction()
 
 
     # first_batch = next(iter(train_loader))

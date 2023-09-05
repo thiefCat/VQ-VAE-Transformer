@@ -81,7 +81,7 @@ class ResUp(nn.Module):
         return out
         
 
-class Encoder(nn.Module):
+class Encoder2(nn.Module):
     '''
     (batch, 28, 28)
     '''
@@ -102,8 +102,7 @@ class Encoder(nn.Module):
         return nn.ModuleList(layers)
     
     def forward(self, x):
-        if self.in_channels == 1:
-            x = x.unsqueeze(1)  # (batch, 28, 28) --> (batch, 1, 28, 28)
+        x = x.unsqueeze(1)  # (batch, 28, 28) --> (batch, 1, 28, 28)
         x = self.activation(self.input_conv(x))
         for layer in self.ResStack:
             x = layer(x)
@@ -111,7 +110,7 @@ class Encoder(nn.Module):
         return x
         
 
-class Decoder(nn.Module):
+class Decoder2(nn.Module):
     '''
     (batch, 28, 28)
     '''
@@ -128,14 +127,9 @@ class Decoder(nn.Module):
     
     def construct_layers(self):
         layers = []
-        if self.in_channels == 1:
-            layers.append(ResUp(2**3*self.ch, 2**2*self.ch, output_padding=1, activation=self.activation))
-            layers.append(ResUp(2**2*self.ch, 2**1*self.ch, output_padding=0, activation=self.activation))
-            layers.append(ResUp(2*self.ch, self.ch, output_padding=0, activation=self.activation))
-        else:
-            for i in range(self.num_res_layers, 0, -1):
-                print(i)
-                layers.append(ResDown(2**i*self.ch, 2**(i-1)*self.ch, self.activation))
+        layers.append(ResUp(2**3*self.ch, 2**2*self.ch, output_padding=1, activation=self.activation))
+        layers.append(ResUp(2**2*self.ch, 2**1*self.ch, output_padding=0, activation=self.activation))
+        layers.append(ResUp(2*self.ch, self.ch, output_padding=0, activation=self.activation))
         return nn.ModuleList(layers)
     
     def forward(self, x):
@@ -143,20 +137,104 @@ class Decoder(nn.Module):
         for layer in self.ResStack:
             x = layer(x)
         out = self.output_act(self.output_conv(x))
-        if self.in_channels == 1:
-            out = out.squeeze(1)  # (batch, 1, 28, 28) --> (batch, 28, 28)
+        out = out.squeeze(1)  # (batch, 1, 28, 28) --> (batch, 28, 28)
         return out
+
+class ResBlock(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.ReLU(True),
+            nn.Conv2d(dim, dim, 3, 1, 1),
+            nn.BatchNorm2d(dim),
+            nn.ReLU(True),
+            nn.Conv2d(dim, dim, 1),
+            nn.BatchNorm2d(dim)
+        )
+
+    def forward(self, x):
+        return x + self.block(x)
+
+
+class Encoder1(nn.Module):
+    '''
+    (batch, 28, 28)
+    '''
+    def __init__(self, in_channels, dim, latent_dim, num_res_layers, activation=nn.ELU()):
+        super().__init__()
+        self.in_channels = in_channels
+        self.dim = dim
+        self.num_res_layers = num_res_layers
+        self.activation = activation
+        self.latent_dim = latent_dim
+        self.conv1 = nn.Conv2d(in_channels, dim, 4, 2, 1)
+        self.bn1 = nn.BatchNorm2d(dim)
+        self.conv2 = nn.Conv2d(dim, dim, 4, 2, 1)
+        self.ResStack = self.construct_layers()
+        self.output_conv = nn.Conv2d(dim, latent_dim, 3, 1, 1)
+
+    def construct_layers(self):
+        layers = []
+        for i in range(self.num_res_layers):
+            layers.append(ResBlock(self.dim))
+        return nn.ModuleList(layers)
+
+    def forward(self, x):
+        x = x.unsqueeze(1)  # (batch, 28, 28) --> (batch, 1, 28, 28)
+        x = self.activation(self.bn1(self.conv1(x)))
+        x = self.conv2(x)
+        for layer in self.ResStack:
+            x = layer(x)
+        x = self.output_conv(x)
+        return x
+    
+class Decoder1(nn.Module):
+    def __init__(self, in_channels, dim, latent_dim, num_res_layers, activation=nn.ELU()):
+        super().__init__()
+        self.in_channels = in_channels
+        self.dim = dim
+        self.num_res_layers = num_res_layers
+        self.activation = activation
+        self.latent_dim = latent_dim
+        self.conv1 = nn.Conv2d(latent_dim, dim, 3, 1, 1)
+        self.conv2 = nn.ConvTranspose2d(dim, dim, 4, 2, 1)
+        self.bn1 = nn.BatchNorm2d(dim)
+        self.conv3 = nn.ConvTranspose2d(dim, dim, 4, 2, 1)
+        self.ResStack = self.construct_layers()
+        self.output_conv = nn.Conv2d(dim, in_channels, 3, 1, 1)
+        self.output_act = nn.Tanh()
+
+    def construct_layers(self):
+        layers = []
+        for i in range(self.num_res_layers):
+            layers.append(ResBlock(self.dim))
+        return nn.ModuleList(layers)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        for layer in self.ResStack:
+            x = layer(x)
+        x = self.activation(x)
+        x = self.activation(self.bn1(self.conv2(x)))
+        x = self.conv3(x)
+        x = self.output_act(self.output_conv(x))
+        x = x.squeeze(1)
+        return x
 
 
 class VQVAE(nn.Module):
-    def __init__(self, in_channels, ch, latent_dim, num_res_layers, K, alpha, beta, activation=nn.ELU()):
+    def __init__(self, architecture, in_channels, ch, latent_dim, num_res_layers, K, alpha, beta, activation=nn.ELU()):
         super().__init__()
         self.K = K
         self.num_res_layers = num_res_layers
         self.in_channels = in_channels
         self.alpha = alpha
-        self.encoder = Encoder(in_channels, ch, latent_dim, num_res_layers, activation)
-        self.decoder = Decoder(in_channels, ch, latent_dim, num_res_layers, activation)
+        if architecture == 1:
+            self.encoder = Encoder1(in_channels, ch, latent_dim, num_res_layers, activation)
+            self.decoder = Decoder1(in_channels, ch, latent_dim, num_res_layers, activation)
+        else:
+            self.encoder = Encoder2(in_channels, ch, latent_dim, num_res_layers, activation)
+            self.decoder = Decoder2(in_channels, ch, latent_dim, num_res_layers, activation)
         self.codebook = VQEmbedding(K, latent_dim, beta)
     
     def encode(self, x):
