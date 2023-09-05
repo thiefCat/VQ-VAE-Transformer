@@ -13,8 +13,7 @@ put the data to "data/MNIST" or "data/Fashion_MNIST". The file structure is illu
 To run the model, go to the working directory, and type "python VQ-VAE-Transformer/vqvae.py" in the terminal, the VQ-VAE model will be trained by default parameters. Then run "python VQ-VAE-Transformer/transformer.py" to train the transformer. If you change parameters, remember to make the parameters consistent in two files. You can look at how to change hyperparameters by running "python VQ-VAE-Transformer/vqvae.py -h" or "python VQ-VAE-Transformer/trasnformer.py -h" and use command line codes to change them. e.g., the dataset used for training, the latent dimension .etc.
 
 ## Result
-You can visualize the training result by looking at /result folder, including the training curve, the reconstructed image, and the generation result.  
-Sample reconstruction results is as follows:
+You can visualize the training result by looking at /result folder, including the training curve, the reconstructed image, and the generation result. Sample reconstruction results is as follows:
 
 <img src="images/mnist_rec.png" width="350" height="70">
 <img src="images/fashion_rec.png" width="350" height="70">
